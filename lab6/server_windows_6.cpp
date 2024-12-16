@@ -8,11 +8,11 @@
 #include <mutex>
 #include <algorithm>
 #include <sys/stat.h>
+#include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
-const int SERVER_PORT = 2007;
 const int BUFFER_SIZE = 1024;
 
 struct ClientInfo {
@@ -22,6 +22,30 @@ struct ClientInfo {
 
 vector<ClientInfo> chatClients;
 mutex chatMutex;
+
+// Получение IP-адреса текущего хоста
+string getHostIPAddress() {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == SOCKET_ERROR) {
+        cerr << "[Server] Error getting hostname." << endl;
+        return "Unknown";
+    }
+
+    struct addrinfo hints = { 0 }, *info;
+    hints.ai_family = AF_INET; // IPv4
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(hostname, nullptr, &hints, &info) != 0) {
+        cerr << "[Server] Error getting host address info." << endl;
+        return "Unknown";
+    }
+
+    char ipStr[INET_ADDRSTRLEN];
+    struct sockaddr_in* ipv4 = (struct sockaddr_in*)info->ai_addr;
+    inet_ntop(AF_INET, &ipv4->sin_addr, ipStr, sizeof(ipStr));
+
+    freeaddrinfo(info);
+    return string(ipStr);
+}
 
 void list_files_recursive(const string& dir_name, stringstream& output) {
     string search_path = dir_name + "\\*";
@@ -127,7 +151,13 @@ void handleChatClient(ClientInfo client) {
     closesocket(client.socket);
 }
 
-void handleClient(SOCKET clientSock) {
+void handleClient(SOCKET clientSock, SOCKADDR_IN clientAddr) {
+    char clientIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+    int clientPort = ntohs(clientAddr.sin_port);
+
+    cout << "[Server] New connection from " << clientIP << ":" << clientPort << endl;
+
     char modeBuffer[BUFFER_SIZE] = { 0 };
     int bytesReceived = recv(clientSock, modeBuffer, sizeof(modeBuffer) - 1, 0);
     if (bytesReceived <= 0) {
@@ -177,9 +207,13 @@ int main() {
         return -1;
     }
 
+    cout << "Enter port number to listen on: ";
+    int port;
+    cin >> port;
+
     SOCKADDR_IN serverInfo = { 0 };
     serverInfo.sin_family = AF_INET;
-    serverInfo.sin_port = htons(SERVER_PORT);
+    serverInfo.sin_port = htons(port);
     serverInfo.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(serverSock, (SOCKADDR*)&serverInfo, sizeof(serverInfo)) == SOCKET_ERROR) {
@@ -196,14 +230,15 @@ int main() {
         return -1;
     }
 
-    cout << "[Server] Server started on port " << SERVER_PORT << endl;
+    string serverIP = getHostIPAddress();
+    cout << "[Server] Server started on IP: " << serverIP << " and port: " << port << endl;
 
     while (true) {
         SOCKADDR_IN clientAddr;
         int addrSize = sizeof(clientAddr);
         SOCKET clientSock = accept(serverSock, (SOCKADDR*)&clientAddr, &addrSize);
         if (clientSock != INVALID_SOCKET) {
-            thread(handleClient, clientSock).detach();
+            thread(handleClient, clientSock, clientAddr).detach();
         }
     }
 
