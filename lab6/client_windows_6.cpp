@@ -10,23 +10,7 @@
 using namespace std;
 
 const int BUFFER_SIZE = 1024;
-const int INTERNAL_PORT = 2007; // Fixed internal port
 mutex coutMutex;
-
-string resolveInternalIP(const string& externalIp) {
-    // Extract IP address and port from external IP (format: IP:PORT)
-    regex ipPattern("^(\\d+\\.\\d+\\.\\d+\\.\\d+):(\\d+)$");
-    smatch match;
-    if (regex_match(externalIp, match, ipPattern)) {
-        string ip = match[1].str();
-        cout << "[Client] External IP: " << ip << " mapped to internal port: " << INTERNAL_PORT << endl;
-        return ip; // Return only the IP, discard the port
-    }
-    else {
-        cerr << "[Client] Invalid external IP format. Please use the format IP:PORT." << endl;
-        return "";
-    }
-}
 
 void receiveMessages(SOCKET sock) {
     char buffer[BUFFER_SIZE] = { 0 };
@@ -57,14 +41,41 @@ int main() {
         return -1;
     }
 
-    cout << "Enter external server IP (format IP:PORT): ";
-    string externalIp;
-    cin >> externalIp;
+    // User selects connection type
+    cout << "Choose connection type: (1) Internal (2) External: ";
+    int connectionType;
+    cin >> connectionType;
 
-    // Resolve external to internal IP
-    string internalIp = resolveInternalIP(externalIp);
-    if (internalIp.empty()) {
-        return -1; // Exit if invalid IP format
+    string ip;
+    int port;
+
+    if (connectionType == 1) {
+        cout << "Enter internal IP address: ";
+        cin >> ip;
+        port = 2007; // Fixed internal port
+    }
+    else if (connectionType == 2) {
+        cout << "Enter external server IP (format IP:PORT): ";
+        string externalIp;
+        cin >> externalIp;
+
+        // Parse external IP and port
+        regex ipPattern("^(\\d+\\.\\d+\\.\\d+\\.\\d+):(\\d+)$");
+        smatch match;
+        if (regex_match(externalIp, match, ipPattern)) {
+            ip = match[1].str();
+            port = stoi(match[2].str());
+        }
+        else {
+            cerr << "[Client] Invalid external IP format. Please use the format IP:PORT." << endl;
+            WSACleanup();
+            return -1;
+        }
+    }
+    else {
+        cerr << "Invalid choice. Exiting." << endl;
+        WSACleanup();
+        return -1;
     }
 
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -76,9 +87,9 @@ int main() {
 
     SOCKADDR_IN serverAddr = { 0 };
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(INTERNAL_PORT);  // Always use internal port 2007
+    serverAddr.sin_port = htons(port);
 
-    if (inet_pton(AF_INET, internalIp.c_str(), &serverAddr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr) <= 0) {
         cerr << "[Client] Invalid address or address not supported" << endl;
         closesocket(sock);
         WSACleanup();
@@ -97,47 +108,26 @@ int main() {
     cin >> mode;
 
     if (mode == 1) { // File Search
-        cout << "[DEBUG] File Search mode selected." << endl;
-
-        int sendRet = send(sock, "FILES", 5, 0);
-        if (sendRet == SOCKET_ERROR) {
-            cerr << "[DEBUG] Error sending FILES command: " << WSAGetLastError() << endl;
-            closesocket(sock);
-            WSACleanup();
-            return -1;
-        }
-        cout << "[DEBUG] Sent FILES command to server." << endl;
+        send(sock, "FILES", 5, 0);
 
         cout << "Enter directory path: ";
         string dir;
         cin.ignore();
         getline(cin, dir);
-        cout << "[DEBUG] Directory entered by user: " << dir << endl;
 
-        sendRet = send(sock, dir.c_str(), static_cast<int>(dir.size()), 0);
-        if (sendRet == SOCKET_ERROR) {
-            cerr << "[DEBUG] Error sending directory path: " << WSAGetLastError() << endl;
-            closesocket(sock);
-            WSACleanup();
-            return -1;
-        }
-        cout << "[DEBUG] Sent directory path to server: " << dir << endl;
+        send(sock, dir.c_str(), static_cast<int>(dir.size()), 0);
 
         char buffer[BUFFER_SIZE] = { 0 };
-        cout << "[DEBUG] Waiting for server response..." << endl;
-
         int bytesReceived = recv(sock, buffer, sizeof(buffer) - 1, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            cout << "[DEBUG] Bytes received from server: " << bytesReceived << endl;
-            cout << "[DEBUG] Server response content: " << buffer << endl;
             cout << "[Client] Received file list:\n" << buffer << endl;
         }
         else if (bytesReceived == 0) {
-            cerr << "[DEBUG] Server closed the connection unexpectedly." << endl;
+            cerr << "[Client] Server closed the connection." << endl;
         }
         else {
-            cerr << "[DEBUG] Error receiving data from server: " << WSAGetLastError() << endl;
+            cerr << "[Client] Error receiving data from server: " << WSAGetLastError() << endl;
         }
 
     }
@@ -154,7 +144,7 @@ int main() {
             string message;
             getline(cin, message);
 
-            if (message == "/quit") { // Graceful exit command
+            if (message == "/quit") {
                 cout << "[Client] Exiting chat..." << endl;
                 break;
             }
@@ -167,7 +157,7 @@ int main() {
         }
     }
 
-    // Graceful cleanup
+    // Cleanup
     shutdown(sock, SD_BOTH);
     closesocket(sock);
     WSACleanup();
