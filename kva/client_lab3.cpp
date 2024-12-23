@@ -27,15 +27,6 @@ void receiveMessages(SOCKET clientSock) {
     }
 }
 
-// Функция для проверки корректности IP адреса
-bool isValidIp(const string& ip) {
-    regex ipPattern("^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\."
-        "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\."
-        "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\."
-        "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
-    return regex_match(ip, ipPattern);
-}
-
 int main() {
     WORD ver = MAKEWORD(2, 2);
     WSADATA wsaData;
@@ -45,37 +36,61 @@ int main() {
         return 1;
     }
 
+    // Выбор типа подключения
+    cout << "Choose connection type: (1) Internal (2) External: ";
+    int connectionType;
+    cin >> connectionType;
+
+    string ip;
+    int port;
+
+    if (connectionType == 1) {
+        cout << "Enter internal IP address: ";
+        cin >> ip;
+        port = 2007; // Фиксированный порт для внутреннего подключения
+    } else if (connectionType == 2) {
+        cout << "Enter external server IP (format IP:PORT): ";
+        string externalIp;
+        cin >> externalIp;
+
+        // Парсинг внешнего IP и порта
+        regex ipPattern("^(\\d+\\.\\d+\\.\\d+\\.\\d+):(\\d+)$");
+        smatch match;
+        if (regex_match(externalIp, match, ipPattern)) {
+            ip = match[1].str();
+            port = stoi(match[2].str());
+        } else {
+            cerr << "[Client] Invalid external IP format. Please use the format IP:PORT." << endl;
+            WSACleanup();
+            return -1;
+        }
+    } else {
+        cerr << "Invalid choice. Exiting." << endl;
+        WSACleanup();
+        return -1;
+    }
+
     // Создание сокета
-    SOCKET clientSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    SOCKET clientSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (clientSock == INVALID_SOCKET) {
         cerr << "Unable to create socket" << endl;
         WSACleanup();
         return 1;
     }
 
-    // Запрос IP и порта у пользователя
-    string serverIp;
-    int port;
+    // Настройка адреса сервера
+    SOCKADDR_IN serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port);
 
-    cout << "Enter the server IP: ";
-    cin >> serverIp;
-
-    // Проверка, что IP корректен
-    if (!isValidIp(serverIp)) {
-        cerr << "Invalid IP format!" << endl;
+    if (inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr) <= 0) {
+        cerr << "[Client] Invalid address or address not supported" << endl;
+        closesocket(clientSock);
         WSACleanup();
         return 1;
     }
 
-    cout << "Enter the server port: ";
-    cin >> port;
-
     // Подключение к серверу
-    SOCKADDR_IN serverAddr;
-    serverAddr.sin_family = PF_INET;
-    serverAddr.sin_addr.s_addr = inet_addr(serverIp.c_str());
-    serverAddr.sin_port = htons(port);
-
     if (connect(clientSock, (LPSOCKADDR)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
         cerr << "Unable to connect to server" << endl;
         closesocket(clientSock);
@@ -83,12 +98,12 @@ int main() {
         return 1;
     }
 
-    cout << "Connected to server at " << serverIp << ":" << port << endl;
+    cout << "Connected to server at " << ip << ":" << port << endl;
 
     // Ввод имени пользователя
     string name;
     cout << "Enter your name: ";
-    cin.ignore();  // Очистка буфера от лишних символов
+    cin.ignore();
     getline(cin, name);
 
     retVal = send(clientSock, name.c_str(), name.length(), 0);
