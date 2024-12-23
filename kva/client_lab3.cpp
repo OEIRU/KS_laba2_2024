@@ -3,6 +3,7 @@
 
 #pragma comment(lib, "Ws2_32.lib")
 #include <winsock2.h>
+#include <ws2tcpip.h>  // Этот заголовок необходим для InetPton
 #include <iostream>
 #include <string>
 #include <thread>
@@ -47,7 +48,7 @@ int main() {
     if (connectionType == 1) {
         cout << "Enter internal IP address: ";
         cin >> ip;
-        port = 2007; // Фиксированный порт для внутреннего подключения
+        port = 2009; // Фиксированный порт для внутреннего подключения
     } else if (connectionType == 2) {
         cout << "Enter external server IP (format IP:PORT): ";
         string externalIp;
